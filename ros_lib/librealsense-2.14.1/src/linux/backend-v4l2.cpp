@@ -762,6 +762,9 @@ namespace librealsense
             FD_SET(_fd, &fds);
             FD_SET(_stop_pipe_fd[0], &fds);
             FD_SET(_stop_pipe_fd[1], &fds);
+            //add for hikey970
+            usb_spec usb_specification{usb_undefined};
+            unsigned int min_buf_len_limit=0;
 
             int max_fd = std::max(std::max(_stop_pipe_fd[0], _stop_pipe_fd[1]), _fd);
 
@@ -828,11 +831,18 @@ namespace librealsense
 
                     bool moved_qbuff = false;
                     auto buffer = _buffers[buf.index];
+                    //add for hikey970
+                    usb_specification = get_usb_connection_type(real_path + "/../../../");
 
                     if (_is_started)
                     {
-                        if((buf.bytesused < buffer->get_full_length() - MAX_META_DATA_SIZE) &&
-                                buf.bytesused > 0)
+                    //add for hikey970
+                        if(usb_specification < usb3_type)
+                            min_buf_len_limit = buffer->get_full_length() - MAX_META_DATA_SIZE;
+                        else
+                            min_buf_len_limit = buffer->get_full_length()/2;
+                    ////modify for hikey970
+                        if((buf.bytesused < min_buf_len_limit) && buf.bytesused > 0)
                         {
                             auto percentage = (100 * buf.bytesused) / buffer->get_full_length();
                             std::stringstream s;
