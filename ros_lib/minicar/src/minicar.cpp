@@ -23,196 +23,203 @@
 #include <geometry_msgs/Quaternion.h>
 #include <geometry_msgs/PoseStamped.h>
 
+typedef struct _Car_Status{
+	float rotation;
+	float wheel_speed;
+	float steering_engine_angle;
+	float position_x;
+	float position_y;
+	float relatively_rotaion;
+	unsigned char direction;
+	unsigned int walks_count;
+
+}Car_Status;
+
+ Car_Status G_car_last_status;
+
+ //每一步的距离 1.1 cm
+#define WALK_COUNT_UNIT  1.1 
 
  #define KEY_TOPIC   "/cmd_vel"
  
 #define MAX_ANGLE_VALUE 24*PI_VALUE/180
 #define PI_VALUE 3.1415926
 
-float linear_speed=0.0;
-float angular_speed=0.0;
-float angular_aw=0;
-
-#define MAX_FILTER_COUNT 10
-float angular_list[MAX_FILTER_COUNT];
-
-float G_current_speed=0.0;
-float G_current_ln_acc =0.0;
-float G_current_angle=0.0;
-
-//float angular_aw=0.0;
-
-float g_position_x=5.0;
-float g_position_y=10.0;
-float g_angular =0.0;
-char calculate_dir = 0;
-Car_interface *car_if; 
-
-unsigned int G_walks=0;
-
 // 小车前后轮的距离15.7cm
-float dc = 15.7;
+#define CAR_LONG_CM  15.7
 //小车轮子到中心轴的距离8.0cm
-float dw = 8.0;
+#define CAR_HALF_WIDTH_CM 8.0
 #define MAX_TRY_TIMES 10
+Car_interface *car_if;
 
-
-#define FAKE_HW_DATA 
+#define FAKE_HW_DATA
 #define FAKE_IMU
 #ifdef FAKE_HW_DATA
-float fake_walk_acc = 3;
+unsigned int fake_walk_acc = 0;
 #endif
 
 
+void int_car_status(void)
+{
+	G_car_last_status.rotation = 0;
+	G_car_last_status.wheel_speed = 0;
+	G_car_last_status.position_x = 0;
+	G_car_last_status.position_y = 0;
+	G_car_last_status.direction = 0;
+	G_car_last_status.walks_count = 0;	
+	G_car_last_status.steering_engine_angle = 0;
+	G_car_last_status.relatively_rotaion = 0;
+}
+void reconfig_car_odom(float rotation , float position_x, float position_y)
+{
+	G_car_last_status.rotation = rotation;
+	G_car_last_status.position_x = position_x;
+	G_car_last_status.position_y = position_y;
+	G_car_last_status.relatively_rotaion = rotation;
+}
+
+void update_car_odom(float x_add , float y_add, float rt_add)
+{
+	G_car_last_status.position_x += x_add;
+	G_car_last_status.position_y += y_add;
+	G_car_last_status.relatively_rotaion += rt_add;
+  //  ROS_ERROR("calculate_odom raw_rt = %f raw_x=%f raw_y=%f g_position_x %f g_position_y %f g_angular %f \n",rt_add,x_add,y_add,G_car_last_status.position_x,G_car_last_status.position_y,G_car_last_status.relatively_rotaion);	
+}
+
+float get_steering_engine_angle_sw(void)
+{
+	return G_car_last_status.steering_engine_angle;
+}
+
+unsigned char get_car_direction_sw(void)
+{
+	return G_car_last_status.direction;
+}
+
+float get_car_rotation(void)
+{
 #ifdef FAKE_IMU
-float fake_angle_acc =0;
-#endif
-
-float read_imu_data(void)
-{
-	int err = -1;
-	int try_times=0;
-	float rotation=0;
-#ifdef FAKE_IMU
-	return fake_angle_acc;
+	return G_car_last_status.relatively_rotaion;
 #else
-	while(err){
-		if(car_if)
-	        err=car_if->get_rotation_data(&rotation);
-		
-		try_times++;
-		if(try_times > MAX_TRY_TIMES)
-			break;
-	}
-	if(err < 0){
-		ROS_ERROR("get_rotation_data error! %f",rotation);
-		return g_angular;
-	}
-	ROS_ERROR("read imu data is :%f \n",rotation);
-	return (2*PI_VALUE - (rotation*PI_VALUE/180));	
+	return G_car_last_status.rotation;
 #endif
 }
 
-
-float angular_filter(float angular)
+float get_car_rotation_sw(void)
 {
-	float ret_anglular=0;
-	for(int i=0;i<(MAX_FILTER_COUNT-1);i++){
-		angular_list[i] = angular_list[i+1];
-		ret_anglular+=angular_list[i];
-	} 
-	angular_list[MAX_FILTER_COUNT-1] = angular;
-	ret_anglular+= angular;
-	return (ret_anglular/MAX_FILTER_COUNT);
+	return G_car_last_status.relatively_rotaion;
 }
 
-unsigned int  read_walk_counter(void)
+
+float get_car_speed(void)
 {
-	int err = -1;
-	unsigned int walks;
-	int try_times=0;
-#ifdef FAKE_HW_DATA
-	return G_walks+fake_walk_acc;
-	//return 0;
-#else
-	while(err){
-		if(car_if)
-	    err=car_if->get_walk_count_data(&walks);
-		try_times++;
-		if(try_times > MAX_TRY_TIMES)
-			break;
-	}
-	
-	if((err < 0)||(walks < 0)){
-	ROS_ERROR("get_odom_data error! %d",walks);
-	return G_walks;
-	}
-	return walks;
-#endif
+	return G_car_last_status.wheel_speed;
 }
-//每一步的距离 2.2 cm
-#define WALK_COUNT_UNIT  1.1 
+
+void update_steering_engine_angle_sw(float angle)
+{
+	G_car_last_status.steering_engine_angle = angle;
+}
+
+
+void update_car_speed(float speed)
+{
+	G_car_last_status.wheel_speed = speed;
+}
+
+void update_car_direction(unsigned char dir)
+{
+	G_car_last_status.direction = dir;
+}
+
+
+void update_car_roation_hw(float rotation)
+{
+	G_car_last_status.rotation = rotation;
+}
+
+ unsigned int get_fake_walks()
+{
+	unsigned int fake_walks = G_car_last_status.walks_count + fake_walk_acc;
+	if(fake_walks >= 255)
+		fake_walks = fake_walks -255;
+	return fake_walks;
+}
+
+  unsigned int caculate_delta_walks(unsigned int hw_count)
+ {
+ 	unsigned int dt = 0;
+	 if(hw_count >= G_car_last_status.walks_count)
+	 dt = hw_count - G_car_last_status.walks_count;
+	 else
+	 dt = 0xff - G_car_last_status.walks_count + hw_count;
+	 if((dt < 0) || (dt > 300)) {
+		 ROS_ERROR("WALKS ERROR! %d \n",dt);
+		 dt = 0;
+	 }	 
+	 G_car_last_status.walks_count = hw_count; //update count
+	 return dt;
+ }
+
+
 int calculate_odom()
 {
-	unsigned int walks=0;
-	unsigned int walks_temp=0;
-	unsigned char dir  = calculate_dir;
-	unsigned int angular_temp=0;
+	unsigned int delta_walks = 0;
+	unsigned int walks_count_hw = 0;
+	unsigned char dir  = get_car_direction_sw();
+	float last_steering_engine_angle = get_steering_engine_angle_sw();
+	unsigned int rotation_temp_hw = 0;
+	float last_rotation = get_car_rotation();
 	int err = -1;
-	int try_times=0;
-	unsigned int v_temp=0;
+	int try_times = 0;
+	unsigned int v_temp = 0;
 	unsigned char buf[2];
-
-	float angle = PI_VALUE/2 - angular_aw;
-	float req_r=0;
-	float R0_t=0;
-	float L0 = 0; // cm
+	float st_angle = PI_VALUE/2 - fabs(last_steering_engine_angle);
+	float req_r = 0.0;
+	float R0_t = 0.0;
+	float L0 = 0.0; // cm
 	float L = 0.0;
-	float L_n=0;
-
+	float L_n= 0.0;
 
 #ifdef FAKE_HW_DATA
-	walks_temp = (G_walks+fake_walk_acc);
-	if(walks_temp >= 255)
-		walks_temp = walks_temp -255;
-#ifdef FAKE_IMU
-	angular_temp = fake_angle_acc;
-#endif
+	walks_count_hw = get_fake_walks();
 #else
-	while(err){
+	while(err) { //从硬件读imu和轮速计的值
 		if(car_if)
-	    	err=car_if->simple_read(buf);
+	    	err = car_if->simple_read(buf);
 
 		try_times++;
 		if(try_times > MAX_TRY_TIMES)
 			break;
 	}
 	v_temp = buf[1];
-	angular_temp = v_temp* 2;
-	walks_temp = buf[0];
+	rotation_temp_hw = v_temp * 2;
+	walks_count_hw = buf[0];
 #endif
-
-
-	if(walks_temp >= G_walks)
-	walks = walks_temp - G_walks;
-	else
-	walks = 0xff - G_walks + walks_temp; 
-
-
-	G_walks = walks_temp;
-
-	if((walks < 0)||(walks > 30)){
-		ROS_ERROR("WALKS ERROR! %d \n",walks);
-		walks =0;
-		return 0;
-	}
-
-	L0 = walks*WALK_COUNT_UNIT; // cm
-
-
-//角度为正，速度为正
+	delta_walks = caculate_delta_walks(walks_count_hw);
+	L0 = delta_walks * WALK_COUNT_UNIT; // 单位 cm
   
-  //已知角度，求轨迹半径:
-  //(tan(@)*dc) * (tan(@)*dc) = r*r + dc*dc/4
-  // (tan(@)*dc) * (tan(@)*dc) - dc*dc/4 = r*r;
-  
-   req_r = sqrt(tan(angle)*dc*tan(angle)*dc + dc*dc/4);
+	//已知角度，求轨迹半径:
+	//(tan(@)*dc) * (tan(@)*dc) = r*r + dc*dc/4
+	// (tan(@)*dc) * (tan(@)*dc) - dc*dc/4 = r*r;
 
-   ROS_ERROR("calculate_odom req_r %u walks %u  G_walks %u angle %f L0 %f \n",req_r,walks,G_walks,angle,L0);
+   req_r = sqrt(tan(st_angle)*CAR_LONG_CM*tan(st_angle)*CAR_LONG_CM + CAR_LONG_CM*CAR_LONG_CM/4);
 
-  //求R0
-  //R0 = tan(angle)*dc – dw
-   R0_t = tan(angle)*dc - dw;
+//   ROS_ERROR("calculate_odom req_r %f delta_walks %d  walks_count_hw %d \n",req_r,delta_walks,walks_count_hw);
 
-   if(R0_t >10000)
-   	R0_t = 0;
+//   ROS_ERROR("calculate_odom st_angle %f L0 %f %d",st_angle,L0,dir);
+  //求R0 :R0 = tan(angle)*dc – dw
+   R0_t = tan(st_angle)*CAR_LONG_CM - CAR_HALF_WIDTH_CM;
 
-  //求车心所经过的距离L
-  //L/L0 = req_r/R0
-  if(R0_t==0)
+//过滤半径太大的轨迹
+   if(R0_t > 10000)
+   		R0_t = 0;
+
+  //求车心所经过的距离L : L/L0 = req_r/R0
+  if(R0_t == 0)
   	L = L0;
   else
-  L = (req_r*L0)/R0_t;
+  	L = (req_r * L0) / R0_t;
 
   //求小车经过的角度
   //周长C = 2PIr
@@ -222,8 +229,8 @@ int calculate_odom()
 	else
 	L_n = (L/(2*req_r));  //
 
-  float  x =  sin(L_n)*req_r;
-  float  y = req_r - cos(L_n)*req_r;
+  float  x =  sin(L_n) * req_r;
+  float  y = req_r - cos(L_n) * req_r;
   float raw_x = 0.0;
   float raw_y = 0.0;
 
@@ -232,59 +239,24 @@ int calculate_odom()
 
 //坐标系旋转 一个导航角后再将增量累加上去。
 //	ROS_ERROR("calculate_odom R0_t %f Ln = %f x= %f y=%f \n",R0_t,L_n,x,y);
-	raw_x = x*cos(g_angular) + y*sin(g_angular);
-// g_position_x +=cos(g_angular)*d_temp/100;  
-	raw_y = x*sin(g_angular)- y*cos(g_angular) ;
-//	g_position_y +=sin(g_angular)*d_temp/100;
+	raw_x = x*cos(last_rotation) + y*sin(last_rotation);
+	raw_y = x*sin(last_rotation)- y*cos(last_rotation);
+    if((last_steering_engine_angle >= 0)&&(dir == 0)) {
+	update_car_odom(raw_x/100, raw_y/100, L_n);
+
+	} else if((last_steering_engine_angle >= 0)&&(dir == 1))  {
+	update_car_odom((-raw_x/100), (-raw_y/100), (-L_n));
+
+	}else if((last_steering_engine_angle < 0)&&(dir == 0)) {
+	update_car_odom((raw_x/100), (raw_y/100), -L_n);
 	
-    if((angular_aw >= 0)&&(dir == 0)) {
-		g_position_x+=raw_x/100;
-		g_position_y+=raw_y/100;
-#ifdef FAKE_IMU
-		fake_angle_acc += L_n;
-#else
-	G_current_ln_acc = L_n;
-#endif
-	} else if((angular_aw >= 0)&&(dir == 1))  {
-		g_position_x-=raw_x/100;
-		g_position_y-=raw_y/100;
-#ifdef FAKE_IMU
-		fake_angle_acc -= L_n;
-#else
-	G_current_ln_acc = -L_n;
-#endif
-
-	}else if((angular_aw < 0)&&(dir == 0))  {
-		g_position_x-=raw_x/100;
-		g_position_y-=raw_y/100;
-#ifdef FAKE_IMU
-		fake_angle_acc +=L_n;
-#else
-	G_current_ln_acc = L_n;
-#endif
-
-	}else if((angular_aw < 0)&&(dir == 1))  {
-		g_position_x+=raw_x/100;
-		g_position_y+=raw_y/100;
-#ifdef FAKE_IMU
-		fake_angle_acc -=L_n;
-#else
-		G_current_ln_acc = -L_n;
-#endif
+	}else if((last_steering_engine_angle < 0)&&(dir == 1)) {
+	update_car_odom((-raw_x/100), (-raw_y/100), (L_n));
 	}
-
-	g_angular = (2*PI_VALUE - (angular_temp*PI_VALUE/180));
-	g_angular = angular_filter(g_angular);
-  //ROS_ERROR("calculate_odom raw_x=%f raw_y=%f g_position_x %f g_position_y %f g_angular %f \n",raw_x,raw_y,g_position_x,g_position_y,g_angular);
+#ifndef FAKE_IMU
+	update_car_roation_hw(2*PI_VALUE - (rotation_temp_hw * PI_VALUE/180));
+#endif
   return 0;
-}
-//1.57 0 4.71
-static void update_odom(void)
-{
-
-    calculate_odom();
-    ROS_ERROR("minicar report angular %f \n",g_angular);
-	
 }
 
 //c = 2pir
@@ -292,36 +264,39 @@ static void update_odom(void)
 //v_a = 2pi/t
 //v_l = r*v_a
 //r = v_l/v_a
-
-
 //底层的速度单位为cm/s
-void set_linear_speed(float l_speed)
+
+void set_linear_speed(float c_speed)
 {
 	int err = -1;
 	int try_times = 0;
-	int speed_out = (int)(l_speed*100);
+	int speed_out = (int)(c_speed*100);
+	float last_speed = get_car_speed();
+	unsigned char last_dir = get_car_direction_sw();
+	unsigned char req_direction = 0;
 	unsigned char speed_temp;
-	if(G_current_speed == l_speed)
-	{
-		ROS_ERROR("speed no change!\n");
-		return;
-	}	
-	
-	ROS_ERROR("set_linear_speed %d cm/s !\n",speed_out);
 
 	if(speed_out < 0){
-		calculate_dir = 1;
+		req_direction = 1;
 		speed_out = -speed_out;
 	}
 	else
-		calculate_dir = 0;
+		req_direction = 0;
+	
+	if((last_speed == c_speed) &&(last_dir == req_direction))
+	{
+	//	ROS_ERROR("speed no change!\n");
+		return;
+	}	
+	ROS_ERROR("set_linear_speed %d cm/s  req_direction %d!\n",speed_out,req_direction);
 
-#ifdef FAKE_HW_DATA
-	fake_walk_acc = speed_out / 2.2;
+#ifdef FAKE_HW_DATA //模拟模式不设置真实速度
+	fake_walk_acc = speed_out/2;
+	update_car_speed(c_speed);
+	update_car_direction(req_direction);
 #else
 	speed_temp = speed_out;
-	ROS_ERROR("set_linear_speed %d  %d cm/s !\n",speed_out,speed_temp);
-
+//	ROS_ERROR("set_linear_speed %d  %d cm/s !\n",speed_out,speed_temp);
 	while(err){
 		if(car_if)
 			err=car_if->set_speed((char)(speed_temp));
@@ -331,40 +306,44 @@ void set_linear_speed(float l_speed)
 		break;
 	}
 	if(err)
-	ROS_ERROR("set_speed error!");
+		ROS_ERROR("set_speed error!");
+	else		
+ 		update_car_speed(c_speed);
 	
 	err =-1;
 	while(err){
 		if(car_if)
-			err=car_if->set_direction(calculate_dir);
+			err=car_if->set_direction(req_direction);
 		try_times++;
 		if(try_times > MAX_TRY_TIMES)
 			break;
 	}
 
 	if(err)
-	ROS_ERROR("set_dir error!");
+		ROS_ERROR("set_dir error!");
 	else
-	G_current_speed = l_speed;
-#endif	
-	
+		update_car_direction(req_direction);
+#endif
 }
 
-void set_wheel_angle(float angle)
+void set_steering_engine_angle(float angle)
 {
 	int err = -1;
 	int try_times=0;
-	int angle_out = (int)(angle*180/PI_VALUE);
-
-	if(G_current_angle == angle)
+	int angle_hw = (int)(angle*180/PI_VALUE);
+	float last_angle = get_steering_engine_angle_sw();
+	if(last_angle == angle)
 	{
-		ROS_ERROR("angle not change !\n");
-	}
-	angle_out = 45 - angle_out ;
-
+	//	ROS_ERROR("angle not change !\n");
+		return;
+	}	
+#ifdef FAKE_HW_DATA
+	update_steering_engine_angle_sw(angle);
+#else
+	angle_hw = 45 - angle_hw; //hw在45度时为0位置. 
 	while(err){
 	if(car_if)
-	err=car_if->set_wheel_angle((char)(angle_out));
+	err=car_if->set_wheel_angle((char)(angle_hw));
 	try_times++;
 	if(try_times > MAX_TRY_TIMES)
 	break;
@@ -373,53 +352,91 @@ void set_wheel_angle(float angle)
 	if(err)
 	ROS_ERROR("set_wheel_angle error!");
 	else
-	G_current_angle = angle;
+		update_steering_engine_angle_sw(angle);
+#endif
 }
 
 
 void chatterCallback(const geometry_msgs::Twist& twistMsg)
 {
 	float r = 0.0;
-	float aw = 0.0;
-	int angle_out = 0;
-	linear_speed=twistMsg.linear.x;
-	angular_speed=twistMsg.angular.z;
-//角速度为0时:
-	if(angular_speed == 0)
+	float linear_speed_temp = twistMsg.linear.x;
+	float angular_speed_temp = twistMsg.angular.z;
+	float angular_st_temp = 0.0;
+    float half_dc_temp = CAR_LONG_CM/200;
+	float dc_temp = CAR_LONG_CM/100;
+	//ROS_ERROR("chatterCallback in %f %f %f \n",linear_speed_temp,angular_speed_temp,r);
+
+	if(angular_speed_temp == 0) //角速度为0:
 	{
-		angular_aw = 0;
-	} else if((angular_speed != 0)&&(linear_speed == 0)){ 
-		//线速度为0时无法转弯，需要强制给一个速度
-		linear_speed = 0.5;
-		if(angular_speed>0)
-			angular_aw =  (MAX_ANGLE_VALUE*PI_VALUE/180);
-		else
-			angular_aw = -(MAX_ANGLE_VALUE*PI_VALUE/180);
-		ROS_ERROR("force set linear speed 0.5 %f \n",angular_aw);
+		angular_st_temp = 0.0;
+	} else if((angular_speed_temp != 0)&&(linear_speed_temp == 0)){ 
+		//线速度为0时无法转弯，不支持这样的命令
+		ROS_ERROR("not support this cmd! as %f ls %f \n",angular_speed_temp,linear_speed_temp);
 	} else {
 		//线速度角速度都不为0
-		r = linear_speed/angular_speed;
-	
-		angular_aw  = PI_VALUE/2 - atan(sqrt(r*r + dc*dc/4)/dc);
-
-		if(angular_speed < 0)
-			angular_aw = -angular_aw;
-
+		r = linear_speed_temp/angular_speed_temp;
+		//根据转向半径计算舵机转向的角度
+		angular_st_temp  = PI_VALUE/2 - atan(sqrt(r*r + half_dc_temp*half_dc_temp)/dc_temp);
 		
-		angle_out = (int)(angular_aw*180/PI_VALUE);
-		
-		if(angle_out > MAX_ANGLE_VALUE){
-			ROS_ERROR("set_angle error angle %d !\n",angle_out);
-			angle_out = MAX_ANGLE_VALUE;
-		} else if (angle_out < -MAX_ANGLE_VALUE){
-			angle_out = -MAX_ANGLE_VALUE;
+#if 0
+		//判断舵机转向的方向
+		if(angular_speed_temp < 0){
+			if(linear_speed_temp > 0)
+				angular_st_temp = -angular_st_temp;
 		}
-		angular_aw = (angle_out*PI_VALUE/180);
+
+		if(angular_speed_temp > 0){
+			if(linear_speed_temp < 0)
+				angular_st_temp = -angular_st_temp;
+		}
+#else
+//判断舵机转向的方向
+
+if(linear_speed_temp > 0){
+	if(angular_speed_temp > 0)
+		angular_st_temp = angular_st_temp;
+}
+
+if(linear_speed_temp > 0){
+	if(angular_speed_temp < 0)
+		angular_st_temp = -angular_st_temp;
+}
+
+if(linear_speed_temp < 0){
+	if(angular_speed_temp < 0)
+		angular_st_temp = angular_st_temp;
+}
+
+
+if(linear_speed_temp < 0){
+	if(angular_speed_temp > 0)
+		angular_st_temp = -angular_st_temp;
+}
+
+
+#endif
+		//舵机角度的限制
+		if(angular_st_temp > MAX_ANGLE_VALUE){
+			angular_st_temp = MAX_ANGLE_VALUE;
+		} else if (angular_st_temp < -MAX_ANGLE_VALUE){
+			angular_st_temp = -MAX_ANGLE_VALUE;
+		}
 	}
 
-	ROS_ERROR("chatterCallback %f %f %f %f \n",linear_speed,angular_speed,r,angular_aw);
-	set_linear_speed(linear_speed);
-	set_wheel_angle(angular_aw);
+	//limit the speed;nor allow speed lower than 0.3 m/s
+	if((linear_speed_temp > 0)&&(linear_speed_temp < 0.3))
+	{
+	   linear_speed_temp = 0.3;
+	}else if((linear_speed_temp < 0)&&(linear_speed_temp > -0.3))
+	{
+	   linear_speed_temp = -0.3;
+	}
+
+//	ROS_ERROR("chatterCallback %f %f %f %f \n",linear_speed_temp,angular_speed_temp,r,angular_st_temp);
+	
+	set_linear_speed(linear_speed_temp);
+	set_steering_engine_angle(angular_st_temp);
 }
 
 
@@ -437,37 +454,39 @@ int main(int argc, char **argv)
 	odom_trans.header.frame_id = "odom";
 	odom_trans.child_frame_id = "base_link";
 
-
 	nav_msgs::Path path;
 	path.header.stamp=current_time;
 	path.header.frame_id="odom";
 
+	int_car_status();
+	reconfig_car_odom(0,10,5);
 #ifdef FAKE_HW_DATA
+	//no need hw
 #else
 	car_if = new Car_interface("/dev/ttyUSB0");
 #endif		
   ros::Subscriber sub = n.subscribe(KEY_TOPIC, 1000, chatterCallback);
   ROS_INFO("minicar start \n");
-  ros::Rate loop_rate(1);
- float angle_temp=0;
+  ros::Rate loop_rate(10);
+  float rotation=0;
   while (ros::ok())
   {
-   	update_odom();
+   	calculate_odom();
 	current_time = ros::Time::now();
 	odom_trans.header.stamp = current_time;
-	odom_trans.transform.translation.x = g_position_x;
-	odom_trans.transform.translation.y = g_position_y;
+	odom_trans.transform.translation.x = G_car_last_status.position_x;
+	odom_trans.transform.translation.y = G_car_last_status.position_y;
 	odom_trans.transform.translation.z = 0.0;
-	angle_temp = g_angular;
-	odom_trans.transform.rotation = tf::createQuaternionMsgFromYaw(angle_temp);
+	rotation = get_car_rotation();
+	odom_trans.transform.rotation = tf::createQuaternionMsgFromYaw(rotation);
 	broadcaster.sendTransform(odom_trans);
 
 
 	geometry_msgs::PoseStamped this_pose_stamped;
-	this_pose_stamped.pose.position.x = g_position_x;
-	this_pose_stamped.pose.position.y = g_position_y;
+	this_pose_stamped.pose.position.x = G_car_last_status.position_x;
+	this_pose_stamped.pose.position.y = G_car_last_status.position_y;
 
-	geometry_msgs::Quaternion goal_quat = tf::createQuaternionMsgFromYaw(angle_temp);
+	geometry_msgs::Quaternion goal_quat = tf::createQuaternionMsgFromYaw(rotation);
 	this_pose_stamped.pose.orientation.x = goal_quat.x;
 	this_pose_stamped.pose.orientation.y = goal_quat.y;
 	this_pose_stamped.pose.orientation.z = goal_quat.z;
@@ -482,6 +501,6 @@ int main(int argc, char **argv)
 	loop_rate.sleep();
   }
   set_linear_speed(0);
-    return 0;
+  return 0;
 }
 
